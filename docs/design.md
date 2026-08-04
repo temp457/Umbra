@@ -50,7 +50,7 @@ Strict layering. A module may only require modules in a layer below it.
 
 | Module | Responsibility |
 |---|---|
-| `Env` | Executor capability detection. Resolves the UI parent (`gethui()` → `CoreGui` → `PlayerGui`) and applies `protect_gui`/`syn.protect_gui` when present. Wraps every filesystem global behind a presence check so a missing file API degrades to "configs unavailable" instead of erroring. Exposes `Env.canFiles`, `Env.isTouch`, `Env.parent`. |
+| `Env` | Executor capability detection. Resolves the UI parent (`gethui()` → `CoreGui` → `PlayerGui`) and applies `protect_gui`/`syn.protect_gui` when present. Wraps every filesystem global behind a presence check so a missing file API degrades to "configs unavailable" instead of erroring. Exposes `Env.hasFiles`, `Env.hasFolders`, `Env.hasListing`, `Env.hasDelete`, `Env.isTouch`, `Env.executor`, and `Env.mount(gui)`. |
 | `Signal` | Minimal signal. `:Connect(fn)` returns a disconnect function, not a connection object. `:Fire(...)` iterates a snapshot so a handler may disconnect during dispatch. `:Destroy()` drops all. |
 | `Trove` | Cleanup collector. Accepts Instances, RBXScriptConnections, Tweens, threads, functions and other Troves. `:Clean()` reverses insertion order. Every window, page, section, element and notification owns one. |
 | `Theme` | The only file containing a `Color3`. Surface, line, text and fill tokens plus type, spacing and radius scales. |
@@ -86,30 +86,39 @@ makes most "black" menus read muddy.
 
 | Token | Hex |
 |---|---|
-| `surface.0` | `#0A0A0A` title bar, rail |
-| `surface.1` | `#101010` window body |
-| `surface.2` | `#161616` section, notification, dialog |
-| `surface.3` | `#1E1E1E` field, secondary button, pill |
-| `surface.4` | `#2A2A2A` row hover |
-| `line.0` | `#1C1C1C` hairline divider |
-| `line.1` | `#2E2E2E` border, slider track, toggle off |
-| `line.2` | `#454545` focus border, swatch border |
-| `text.0` | `#FFFFFF` primary, active, values |
-| `text.1` | `#B4B4B4` row labels, body |
-| `text.2` | `#838383` section headers, secondary |
-| `text.3` | `#5C5C5C` disabled only |
-| `fill.on` | `#FFFFFF` active toggle, checked box, primary button |
-| `on.fill` | `#0A0A0A` content on top of `fill.on` |
+| `surface[0]` | `#080808` title bar, rail |
+| `surface[1]` | `#121212` window body |
+| `surface[2]` | `#1E1E1E` section, notification, dialog |
+| `surface[3]` | `#2A2A2A` field, secondary button, pill |
+| `surface[4]` | `#3A3A3A` row hover |
+| `line.soft` | `#3F3F3F` hairline divider, container border |
+| `line.control` | `#6E6E6E` control boundary (toggle track, checkbox, slider) |
+| `line.focus` | `#A0A0A0` focus border, swatch border |
+| `line.disabled` | `#3F3F3F` disabled control boundary |
+| `text[0]` | `#FFFFFF` primary, active, values |
+| `text[1]` | `#B4B4B4` row labels, body |
+| `text[2]` | `#949494` section headers, secondary |
+| `text[3]` | `#6E6E6E` disabled only |
+| `fill` | `#FFFFFF` active toggle, checked box, primary button |
+| `onFill` | `#080808` content on top of `fill` |
+| `knobOff` | `#949494` toggle knob in its off state |
+
+`line.control` is separate from `line.soft` because a control's boundary must
+clear 3:1 against its background (WCAG 1.4.11) while a decorative divider need
+not. Collapsing them makes off-toggles and unchecked boxes invisible.
 
 Contrast is verified against every surface each token can land on, not just one.
-Row labels sit on `surface.2` at rest and `surface.4` on hover; both must clear
+Row labels sit on `surface[2]` at rest and `surface[4]` on hover; both must clear
 4.5:1. Any token failing on any reachable surface is corrected at the token, not
 worked around at the call site.
 
 ### Type
 
-BuilderSans, resolved once at load through `Font.new` with a fallback chain to
-Gotham. Weights: Regular 400 and Medium 500 only. RobotoMono for live-updating
+Gotham enums, not `Font.new` — a missing font family degrades silently rather
+than erroring, so a certain enum beats a nicer gamble. `Theme.font.regular` is
+`GothamMedium` and `Theme.font.medium` is `GothamBold`; the whole scale sits one
+weight heavier than nominal because thin strokes alias badly at 11-13px.
+RobotoMono for live-updating
 numerics (FPS, ping, slider values, hex codes, keybind chips) so digit width
 does not shift layout as values change.
 
@@ -135,7 +144,7 @@ column below, which is also the mobile answer. Each new section is assigned to
 whichever column is currently shorter, so the two sides stay balanced. Sections
 accept `Column = "left" | "right"` to override.
 
-Rows are transparent at rest and separated by hairlines, filling `surface.4` on
+Rows are transparent at rest and separated by hairlines, filling `surface[4]` on
 hover. A stack of individually filled cards is the main reason menus of this kind
 read as busy.
 
@@ -257,7 +266,7 @@ Search both read. Duplicate flags throw.
 under `<Folder>/<place or global>/<name>.json`. Named configs, list, load, save,
 delete, and autoload on start. Values are validated on load: wrong type, out of
 range, or an option that no longer exists is skipped with a notification rather
-than applied. When `Env.canFiles` is false the whole system disables itself and
+than applied. When `Env.hasFiles` is false the whole system disables itself and
 says so once.
 
 **Notify** — a top-right stack, newest on top, each with an independent timer and
@@ -270,7 +279,8 @@ letting the stack run off-screen.
 independent of whether the window is open.
 
 **Watermark** — a draggable bar with the hub name and optional FPS, ping and
-clock. Updates at 2Hz on a single shared timer, not per frame.
+clock. Samples at 4Hz off a single `Heartbeat` accumulator — the one permitted
+per-frame consumer, and only while the watermark exists.
 
 **Search** — fuzzy-matches every registered element by label and section, and
 jumps to it: switches tab, scrolls it into view, and flashes the row.
@@ -283,7 +293,10 @@ section destroys its rows' subscriptions.
 
 Deferred work is the known leak: a connection made after a yield can outlive a
 cleanup that ran before it existed. Every deferred connect is guarded by both a
-stop flag and a per-load generation token, checked *after* the yield.
+parent-existence check *after* the yield (`if inst.Parent == nil then return end`),
+and the thread is registered to a Trove so cleanup cancels it. `Trove:Add` on an
+already-dead Trove disposes the item immediately, which closes the
+add-after-cleanup race.
 
 Re-running the loadstring detects an existing global and unloads the previous
 instance first, so iterating on a hub never leaves two menus or a doubled input
@@ -310,9 +323,13 @@ diagnose than failing at interaction.
 
 ## Verification
 
-- `luau-compile` parse-checks every source file and the emitted bundle. This is
-  a hard gate — the build refuses to write `dist/umbra.luau` if it fails.
-- `luau-analyze` type- and lint-checks the source.
+- `luau-compile` parse-checks the emitted bundle. This is a hard gate — the
+  build writes to a staging file, compiles it, and only promotes it to
+  `dist/umbra.luau` on exit 0. **Caveat:** the compiler path is hardcoded to
+  `~/.rokit/bin/luau-compile.exe`; if that binary is absent the check is skipped
+  and the bundle ships unverified.
+- `luau-analyze` type- and lint-checks the source. Run it yourself — it is not
+  wired into the build scripts.
 - Review passes over the design system and the source, covering overflow,
   contrast, clipping, scale, touch targets, leaked connections and cleanup.
 - `Example.luau` exercises every element and doubles as the smoke test.

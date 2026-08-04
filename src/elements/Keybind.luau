@@ -256,6 +256,7 @@ function Keybind.build(section, opts)
 
 	handle.bind = state
 	handle.trove:Add(state)
+	handle.callback = opts.Changed
 
 	handle._apply = function(value)
 		state:Set(value, true)
@@ -271,7 +272,7 @@ function Keybind.build(section, opts)
 	state:OnChanged(function(value)
 		handle.value = value
 		handle.changed:Fire(value)
-		Element.guard(handle, opts.Changed, value)
+		Element.guard(handle, handle.callback, value)
 	end)
 
 	handle.value = state.value
