@@ -30,7 +30,7 @@ function Slider.build(section, opts)
 		)
 	end
 
-	local decimals = tonumber(opts.Rounding) or 0
+	local decimals = math.max(math.floor(tonumber(opts.Rounding) or 0), 0)
 	local step = tonumber(opts.Step)
 	local suffix = opts.Suffix and tostring(opts.Suffix) or ""
 

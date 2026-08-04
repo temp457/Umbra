@@ -148,6 +148,7 @@ function Element.new(section, opts, config)
 
 			if wanted > budget then
 				handle.stacked = true
+				slot.ClipsDescendants = true
 
 				row.Size = UDim2.new(1, 0, 0, height * 2 - Theme.space.xs)
 
@@ -162,6 +163,7 @@ function Element.new(section, opts, config)
 			end
 
 			handle.stacked = false
+			slot.ClipsDescendants = false
 			local given = math.max(math.min(wanted, budget), 0)
 
 			row.Size = UDim2.new(1, 0, 0, height)
@@ -262,11 +264,15 @@ function Element:rebase(instance, color: Color3)
 	for _, node in self.textNodes do
 		if node.instance == instance then
 			node.base = color
-			if not (self.hovered and self.enabled) then
-				instance.TextColor3 = color
-			else
-				instance.TextColor3 = Theme.lifted(color)
+
+			local target = color
+			if not self.enabled then
+				target = Theme.text[3]
+			elseif self.hovered then
+				target = Theme.lifted(color)
 			end
+
+			Motion.set(instance, { TextColor3 = target })
 			return
 		end
 	end
