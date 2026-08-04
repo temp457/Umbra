@@ -17,7 +17,7 @@ function Slider.build(section, opts)
 	local minimum = tonumber(opts.Min) or 0
 	local maximum = tonumber(opts.Max) or 100
 
-	if maximum <= minimum then
+	if not (maximum > minimum) then
 		error(
 			"Umbra: slider '"
 				.. tostring(opts.Flag or opts.Text or "?")
