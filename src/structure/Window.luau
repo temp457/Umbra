@@ -113,7 +113,7 @@ function Window.new(opts)
 		TextColor3 = Theme.onFill,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		Size = UDim2.fromOffset(metrics.touchTarget, metrics.touchTarget),
-		Position = UDim2.fromOffset(Theme.space.xl, metrics.notificationTop),
+		Position = UDim2.new(0, Theme.space.xl, 0.5, -(metrics.touchTarget / 2)),
 		BackgroundColor3 = Theme.fill,
 		BackgroundTransparency = 0,
 		Visible = false,
