@@ -43,7 +43,7 @@ function Window.new(opts)
 	self.name = opts.Name or "Umbra"
 	self.version = opts.Version
 	self.visible = true
-	self.popup = nil
+	self.popups = {}
 	self.modal = 0
 	self.closed = Signal.new()
 
@@ -155,7 +155,7 @@ function Window.new(opts)
 	self:bindToggle(opts.Toggle)
 
 	self.trove:Connect(root:GetPropertyChangedSignal("AbsoluteSize"), function()
-		self:closePopup()
+		self:closePopups()
 		for _, tab in self.tabs do
 			tab.page:reflow(root.AbsoluteSize.X)
 		end
@@ -441,7 +441,7 @@ function Window:buildResizeGrip()
 			resizing = true
 			origin = input.Position
 			startSize = self.root.AbsoluteSize
-			self:closePopup()
+			self:closePopups()
 		end
 	end)
 
@@ -479,7 +479,7 @@ function Window:bindDrag()
 			dragging = true
 			origin = input.Position
 			startPos = self.root.Position
-			self:closePopup()
+			self:closePopups()
 			self:hideTooltip()
 		end
 	end)
@@ -558,7 +558,7 @@ function Window:select(tab)
 		return
 	end
 
-	self:closePopup()
+	self:closePopups()
 
 	if self.activeTab then
 		self.activeTab.page:Hide()
@@ -579,41 +579,47 @@ function Window:Config(opts)
 end
 
 function Window:isBlocked(): boolean
-	return self.popup ~= nil or self.modal > 0
+	return #self.popups > 0 or self.modal > 0
 end
 
 function Window:openPopup(frame: GuiObject, onClose)
-	self:closePopup()
+	local depth = #self.popups
 
 	local catcher = Create.button({
 		Name = "Catcher",
 		Text = "",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
-		ZIndex = Theme.zone.overlay,
+		ZIndex = Theme.zone.overlay + depth * 2,
 		Parent = self.overlay,
 	})
 
 	frame.Parent = self.overlay
+	frame.ZIndex = Theme.zone.popup + depth * 2
 
 	local connection = catcher.Activated:Connect(function()
 		self:closePopup()
 	end)
 
-	self.popup = {
+	table.insert(self.popups, {
 		frame = frame,
 		onClose = onClose,
 		catcher = catcher,
 		connection = connection,
-	}
+	})
+end
+
+function Window:closePopups()
+	while #self.popups > 0 do
+		self:closePopup()
+	end
 end
 
 function Window:closePopup()
-	local popup = self.popup
+	local popup = table.remove(self.popups)
 	if not popup then
 		return
 	end
-	self.popup = nil
 
 	if popup.connection then
 		popup.connection:Disconnect()
@@ -718,7 +724,7 @@ function Window:hide()
 		return
 	end
 	self.visible = false
-	self:closePopup()
+	self:closePopups()
 	self:hideTooltip()
 	self.restore.Visible = Env.isTouch
 
@@ -755,7 +761,7 @@ function Window:toggle()
 end
 
 function Window:Destroy()
-	self:closePopup()
+	self:closePopups()
 	self:hideTooltip()
 
 	for _, tab in table.clone(self.tabs) do

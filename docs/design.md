@@ -236,6 +236,28 @@ Umbra:Unload()
 `Notify` returns a handle with `:Update{}` and `:Dismiss()` so a long-running
 action owns one notification instead of emitting four.
 
+## Sub-menus
+
+Any row can carry a `⋯` button that opens a floating panel of further options.
+`Element:Menu(opts)` returns the panel, which **is a detached `Section`** — so
+every element type works inside it with no per-element support, including
+another `:Menu{}`. Menus nest arbitrarily.
+
+Three mechanics make that work:
+
+- **The panel is built once at attach time** and parented to `nil` while closed,
+  reparented to the overlay on open. Building it lazily would mean flags
+  registering late, so duplicate detection, config saving and search would all
+  miss its contents until the first open.
+- **Popups are a stack, not a single slot.** A dropdown opened *inside* a
+  sub-menu pushes a third popup; each level gets its own click-catcher at
+  `zone.overlay + depth*2` and panel at `zone.popup + depth*2`. `closePopup`
+  pops one level (so Escape backs out), `closePopups` drains — the latter is
+  what window drag, resize, tab switch, hide and destroy call.
+- **`section.anchorRow`** points at the owning row, because a sub-menu element
+  has no meaningful `AbsolutePosition` while its panel is unparented. Search
+  scrolls to the anchor row and then calls `section.openMenu()`.
+
 ## Element contract
 
 Every element module exports:

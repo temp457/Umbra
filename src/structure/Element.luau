@@ -426,6 +426,13 @@ function Element:Color(opts)
 	return self
 end
 
+function Element:Menu(opts)
+	if self.menu then
+		return self.menu
+	end
+	return require("SubMenu").attach(self, opts or {})
+end
+
 function Element:Destroy()
 	if self.destroyed then
 		return

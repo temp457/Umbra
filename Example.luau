@@ -95,6 +95,32 @@ Esp:Toggle({ Flag = "name_esp", Text = "Names", Default = false })
 
 Esp:Slider({ Flag = "thickness", Text = "Thickness", Min = 0.5, Max = 5, Default = 1.4, Rounding = 1 })
 
+local Tracers = Esp:Toggle({ Flag = "tracer_esp", Text = "Tracers", Default = false })
+	:Menu({ Title = "Tracer options" })
+
+Tracers:Dropdown({
+	Flag = "tracer_origin",
+	Text = "Origin",
+	Options = { "Bottom", "Centre", "Mouse" },
+	Default = "Bottom",
+})
+
+Tracers:Slider({ Flag = "tracer_width", Text = "Width", Min = 0.5, Max = 5, Default = 1, Rounding = 1 })
+
+Tracers:Toggle({ Flag = "tracer_fade", Text = "Fade by distance", Default = true })
+	:Menu({ Title = "Fade" })
+	:Slider({ Flag = "tracer_fade_max", Text = "Max studs", Min = 50, Max = 2000, Default = 500 })
+
+Tracers:Divider({})
+
+Tracers:Button({
+	Text = "Reset tracers",
+	Confirm = true,
+	Callback = function()
+		Umbra:Notify({ Title = "Tracers reset", Duration = 3 })
+	end,
+})
+
 local Look = Visuals:Section("Look")
 
 Look:Color({ Flag = "accent", Text = "Highlight", Default = Color3.fromRGB(255, 255, 255) })

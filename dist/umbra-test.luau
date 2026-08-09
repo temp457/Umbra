@@ -2403,6 +2403,13 @@ function Element:Color(opts)
 	return self
 end
 
+function Element:Menu(opts)
+	if self.menu then
+		return self.menu
+	end
+	return require("SubMenu").attach(self, opts or {})
+end
+
 function Element:Destroy()
 	if self.destroyed then
 		return
@@ -4630,14 +4637,23 @@ local function jump(window, handle)
 
 	task.defer(function()
 		local scroll = tab.page.scroll
-		if not scroll.Parent or not handle.frame.Parent then
+		local anchor = handle.section and handle.section.anchorRow
+
+		if not scroll.Parent then
 			return
 		end
 
-		local offset = handle.frame.AbsolutePosition.Y - scroll.AbsolutePosition.Y + scroll.CanvasPosition.Y
+		local row = if anchor then anchor.frame else handle.frame
+		if not row.Parent then
+			return
+		end
+
+		local offset = row.AbsolutePosition.Y - scroll.AbsolutePosition.Y + scroll.CanvasPosition.Y
 		scroll.CanvasPosition = Vector2.new(0, math.max(offset - Theme.space.xxxl, 0))
 
-		local row = handle.frame
+		if handle.section and handle.section.openMenu then
+			handle.section.openMenu()
+		end
 
 		Motion.tween(row, Motion.curve.reveal, { BackgroundTransparency = 0 }, handle.trove)
 		Motion.after(0.3, function()
@@ -4956,7 +4972,12 @@ function Section.new(page, title: string?, opts: { [string]: any }?)
 	})
 	Create.list({ Padding = UDim.new(0, 0) }).Parent = self.body
 
-	page:place(self)
+	if options.Parent then
+		self.detached = true
+		frame.Parent = options.Parent
+	else
+		page:place(self)
+	end
 
 	return self
 end
@@ -5310,6 +5331,224 @@ end
 return Slider
 end
 
+__modules["SubMenu"] = function()
+local Theme = require("Theme")
+local Create = require("Create")
+local Motion = require("Motion")
+local Icons = require("Icons")
+local Section = require("Section")
+
+local SubMenu = {}
+
+local function marks(button: TextButton, asset: string?)
+	if asset then
+		local picture = Create.image({
+			Name = "Glyph",
+			Image = asset,
+			Size = UDim2.fromOffset(14, 14),
+			Position = UDim2.fromScale(0.5, 0.5),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			ImageColor3 = Theme.text[2],
+			ZIndex = 4,
+			Parent = button,
+		})
+		return { picture }
+	end
+
+	local dots = {}
+
+	for index = 1, 3 do
+		local dot = Create.new("Frame", {
+			Name = "Dot",
+			Size = UDim2.fromOffset(2, 2),
+			Position = UDim2.new(0.5, (index - 2) * 5, 0.5, 0),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			BackgroundColor3 = Theme.text[2],
+			BorderSizePixel = 0,
+			ZIndex = 4,
+			Parent = button,
+		})
+		Create.corner(1).Parent = dot
+		table.insert(dots, dot)
+	end
+
+	return dots
+end
+
+local function paint(parts, colour: Color3)
+	for _, part in parts do
+		if part:IsA("ImageLabel") then
+			part.ImageColor3 = colour
+		else
+			part.BackgroundColor3 = colour
+		end
+	end
+end
+
+function SubMenu.attach(owner, opts)
+	local settings = opts or {}
+	local window = owner.window
+	local metrics = Theme.metrics
+
+	local trove = owner.trove:Extend()
+	local size = if Theme.isTouch then metrics.menuButtonTouch else metrics.menuButton
+	local open = false
+
+	local button = Create.button({
+		Name = "Menu",
+		Text = "",
+		Size = UDim2.fromOffset(size, size),
+		BackgroundColor3 = Theme.surface[3],
+		BackgroundTransparency = 0,
+		LayoutOrder = settings.Order or 8,
+		ZIndex = 3,
+		Parent = owner.slot,
+	})
+	Create.corner(Theme.radius.small).Parent = button
+
+	local border = Create.stroke(Theme.line.control)
+	border.Parent = button
+
+	local glyphs = marks(button, Icons.resolve(settings.Icon))
+
+	local panel = Create.new("CanvasGroup", {
+		Name = "SubMenu",
+		Size = UDim2.fromOffset(metrics.menuWidth, 0),
+		BackgroundColor3 = Theme.surface[1],
+		BorderSizePixel = 0,
+		GroupTransparency = 1,
+		ZIndex = Theme.zone.popup,
+	})
+	Create.corner(Theme.radius.section).Parent = panel
+	Create.stroke(Theme.line.control).Parent = panel
+	trove:Add(panel)
+
+	local scroll = Create.scroll({
+		Name = "Body",
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = Theme.zone.popup,
+		Parent = panel,
+	})
+	Create.pad(Theme.space.md).Parent = scroll
+
+	local proxy = {
+		window = window,
+		trove = trove,
+	}
+
+	function proxy:place() end
+	function proxy:unplace() end
+
+	local section = Section.new(proxy, settings.Title or owner.text, { Parent = scroll })
+
+	section.page = owner.section and owner.section.page or nil
+	section.anchorRow = owner
+
+	local function resize()
+		local content = section.frame.AbsoluteSize.Y
+		if content <= 0 then
+			return
+		end
+		local height = math.clamp(content + Theme.space.md * 2, 48, metrics.menuMaxHeight)
+		panel.Size = UDim2.fromOffset(metrics.menuWidth, math.floor(height))
+	end
+
+	trove:Connect(section.frame:GetPropertyChangedSignal("AbsoluteSize"), resize)
+
+	local function close()
+		if not open then
+			return
+		end
+		open = false
+
+		paint(glyphs, Theme.text[2])
+		Motion.tween(border, Motion.curve.color, { Color = Theme.line.control }, trove)
+
+		local fade = Motion.tween(panel, Motion.curve.exit, { GroupTransparency = 1 }, trove)
+		local function finish()
+			panel.Parent = nil
+		end
+
+		if fade then
+			fade.Completed:Once(finish)
+		else
+			finish()
+		end
+	end
+
+	local function show()
+		if open then
+			return
+		end
+		open = true
+
+		resize()
+
+		local camera = workspace.CurrentCamera
+		local bounds = if camera then camera.ViewportSize else Vector2.new(1280, 720)
+
+		local anchor = button.AbsolutePosition
+		local anchorSize = button.AbsoluteSize
+		local height = panel.AbsoluteSize.Y
+		if height <= 0 then
+			height = metrics.menuMaxHeight
+		end
+
+		local x = math.clamp(
+			anchor.X + anchorSize.X - metrics.menuWidth,
+			Theme.space.md,
+			math.max(bounds.X - metrics.menuWidth - Theme.space.md, Theme.space.md)
+		)
+
+		local y = anchor.Y + anchorSize.Y + Theme.space.xs
+		if y + height > bounds.Y then
+			y = math.max(anchor.Y - height - Theme.space.xs, Theme.space.md)
+		end
+
+		panel.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
+		panel.GroupTransparency = 1
+
+		paint(glyphs, Theme.text[0])
+		Motion.tween(border, Motion.curve.color, { Color = Theme.line.focus }, trove)
+
+		window:openPopup(panel, close)
+		Motion.tween(panel, Motion.curve.reveal, { GroupTransparency = 0 }, trove)
+
+		task.defer(resize)
+	end
+
+	trove:Connect(button.Activated, function()
+		if owner.enabled == false then
+			return
+		end
+		if open then
+			window:closePopup()
+		else
+			show()
+		end
+	end)
+
+	trove:Connect(button.MouseEnter, function()
+		Motion.tween(button, Motion.curve.hover, { BackgroundColor3 = Theme.surface[4] }, trove)
+	end)
+
+	trove:Connect(button.MouseLeave, function()
+		Motion.tween(button, Motion.curve.hover, { BackgroundColor3 = Theme.surface[3] }, trove)
+	end)
+
+	section.openMenu = show
+	section.closeMenu = close
+	section.owner = owner
+	section.button = button
+
+	owner.menu = section
+
+	return section
+end
+
+return SubMenu
+end
+
 __modules["Theme"] = function()
 local Env = require("Env")
 
@@ -5418,6 +5657,11 @@ Theme.metrics = {
 	chevron = 12,
 
 	touchTarget = 44,
+
+	menuButton = 20,
+	menuButtonTouch = 32,
+	menuWidth = 250,
+	menuMaxHeight = 320,
 
 	dropdownRow = 28,
 	dropdownMaxRows = 8,
@@ -6156,7 +6400,7 @@ function Window.new(opts)
 	self.name = opts.Name or "Umbra"
 	self.version = opts.Version
 	self.visible = true
-	self.popup = nil
+	self.popups = {}
 	self.modal = 0
 	self.closed = Signal.new()
 
@@ -6268,7 +6512,7 @@ function Window.new(opts)
 	self:bindToggle(opts.Toggle)
 
 	self.trove:Connect(root:GetPropertyChangedSignal("AbsoluteSize"), function()
-		self:closePopup()
+		self:closePopups()
 		for _, tab in self.tabs do
 			tab.page:reflow(root.AbsoluteSize.X)
 		end
@@ -6554,7 +6798,7 @@ function Window:buildResizeGrip()
 			resizing = true
 			origin = input.Position
 			startSize = self.root.AbsoluteSize
-			self:closePopup()
+			self:closePopups()
 		end
 	end)
 
@@ -6592,7 +6836,7 @@ function Window:bindDrag()
 			dragging = true
 			origin = input.Position
 			startPos = self.root.Position
-			self:closePopup()
+			self:closePopups()
 			self:hideTooltip()
 		end
 	end)
@@ -6671,7 +6915,7 @@ function Window:select(tab)
 		return
 	end
 
-	self:closePopup()
+	self:closePopups()
 
 	if self.activeTab then
 		self.activeTab.page:Hide()
@@ -6692,41 +6936,47 @@ function Window:Config(opts)
 end
 
 function Window:isBlocked(): boolean
-	return self.popup ~= nil or self.modal > 0
+	return #self.popups > 0 or self.modal > 0
 end
 
 function Window:openPopup(frame: GuiObject, onClose)
-	self:closePopup()
+	local depth = #self.popups
 
 	local catcher = Create.button({
 		Name = "Catcher",
 		Text = "",
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
-		ZIndex = Theme.zone.overlay,
+		ZIndex = Theme.zone.overlay + depth * 2,
 		Parent = self.overlay,
 	})
 
 	frame.Parent = self.overlay
+	frame.ZIndex = Theme.zone.popup + depth * 2
 
 	local connection = catcher.Activated:Connect(function()
 		self:closePopup()
 	end)
 
-	self.popup = {
+	table.insert(self.popups, {
 		frame = frame,
 		onClose = onClose,
 		catcher = catcher,
 		connection = connection,
-	}
+	})
+end
+
+function Window:closePopups()
+	while #self.popups > 0 do
+		self:closePopup()
+	end
 end
 
 function Window:closePopup()
-	local popup = self.popup
+	local popup = table.remove(self.popups)
 	if not popup then
 		return
 	end
-	self.popup = nil
 
 	if popup.connection then
 		popup.connection:Disconnect()
@@ -6831,7 +7081,7 @@ function Window:hide()
 		return
 	end
 	self.visible = false
-	self:closePopup()
+	self:closePopups()
 	self:hideTooltip()
 	self.restore.Visible = Env.isTouch
 
@@ -6868,7 +7118,7 @@ function Window:toggle()
 end
 
 function Window:Destroy()
-	self:closePopup()
+	self:closePopups()
 	self:hideTooltip()
 
 	for _, tab in table.clone(self.tabs) do
@@ -6980,6 +7230,32 @@ Esp:Toggle({ Flag = "name_esp", Text = "Names", Default = false })
 	:Color({ Flag = "name_color", Text = "Names", Default = Color3.fromRGB(48, 209, 88) })
 
 Esp:Slider({ Flag = "thickness", Text = "Thickness", Min = 0.5, Max = 5, Default = 1.4, Rounding = 1 })
+
+local Tracers = Esp:Toggle({ Flag = "tracer_esp", Text = "Tracers", Default = false })
+	:Menu({ Title = "Tracer options" })
+
+Tracers:Dropdown({
+	Flag = "tracer_origin",
+	Text = "Origin",
+	Options = { "Bottom", "Centre", "Mouse" },
+	Default = "Bottom",
+})
+
+Tracers:Slider({ Flag = "tracer_width", Text = "Width", Min = 0.5, Max = 5, Default = 1, Rounding = 1 })
+
+Tracers:Toggle({ Flag = "tracer_fade", Text = "Fade by distance", Default = true })
+	:Menu({ Title = "Fade" })
+	:Slider({ Flag = "tracer_fade_max", Text = "Max studs", Min = 50, Max = 2000, Default = 500 })
+
+Tracers:Divider({})
+
+Tracers:Button({
+	Text = "Reset tracers",
+	Confirm = true,
+	Callback = function()
+		Umbra:Notify({ Title = "Tracers reset", Duration = 3 })
+	end,
+})
 
 local Look = Visuals:Section("Look")
 

@@ -84,7 +84,12 @@ function Section.new(page, title: string?, opts: { [string]: any }?)
 	})
 	Create.list({ Padding = UDim.new(0, 0) }).Parent = self.body
 
-	page:place(self)
+	if options.Parent then
+		self.detached = true
+		frame.Parent = options.Parent
+	else
+		page:place(self)
+	end
 
 	return self
 end

@@ -106,6 +106,11 @@ Theme.metrics = {
 
 	touchTarget = 44,
 
+	menuButton = 20,
+	menuButtonTouch = 32,
+	menuWidth = 250,
+	menuMaxHeight = 320,
+
 	dropdownRow = 28,
 	dropdownMaxRows = 8,
 	pickerWidth = 200,
