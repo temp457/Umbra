@@ -133,9 +133,10 @@ Theme.zone = {
 	keybinds = 6,
 	overlay = 20,
 	popup = 21,
-	notification = 30,
-	tooltip = 40,
-	dialog = 50,
+	popupDepthMax = 24,
+	notification = 100,
+	tooltip = 200,
+	dialog = 300,
 }
 
 Theme.font = {

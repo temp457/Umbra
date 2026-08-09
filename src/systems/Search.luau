@@ -71,13 +71,21 @@ local function jump(window, handle)
 
 	task.defer(function()
 		local scroll = tab.page.scroll
-		local anchor = handle.section and handle.section.anchorRow
-
 		if not scroll.Parent then
 			return
 		end
 
-		local row = if anchor then anchor.frame else handle.frame
+		local menus = {}
+		local cursor = handle.section
+
+		while cursor and cursor.openMenu do
+			table.insert(menus, 1, cursor)
+			local owner = cursor.anchorRow
+			cursor = owner and owner.section or nil
+		end
+
+		local outermost = menus[1] and menus[1].anchorRow
+		local row = if outermost then outermost.frame else handle.frame
 		if not row.Parent then
 			return
 		end
@@ -85,9 +93,18 @@ local function jump(window, handle)
 		local offset = row.AbsolutePosition.Y - scroll.AbsolutePosition.Y + scroll.CanvasPosition.Y
 		scroll.CanvasPosition = Vector2.new(0, math.max(offset - Theme.space.xxxl, 0))
 
-		if handle.section and handle.section.openMenu then
-			handle.section.openMenu()
+		local function openNext(index: number)
+			local menu = menus[index]
+			if not menu then
+				return
+			end
+			menu.openMenu()
+			task.defer(function()
+				openNext(index + 1)
+			end)
 		end
+
+		openNext(1)
 
 		Motion.tween(row, Motion.curve.reveal, { BackgroundTransparency = 0 }, handle.trove)
 		Motion.after(0.3, function()

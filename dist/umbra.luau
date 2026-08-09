@@ -4637,13 +4637,21 @@ local function jump(window, handle)
 
 	task.defer(function()
 		local scroll = tab.page.scroll
-		local anchor = handle.section and handle.section.anchorRow
-
 		if not scroll.Parent then
 			return
 		end
 
-		local row = if anchor then anchor.frame else handle.frame
+		local menus = {}
+		local cursor = handle.section
+
+		while cursor and cursor.openMenu do
+			table.insert(menus, 1, cursor)
+			local owner = cursor.anchorRow
+			cursor = owner and owner.section or nil
+		end
+
+		local outermost = menus[1] and menus[1].anchorRow
+		local row = if outermost then outermost.frame else handle.frame
 		if not row.Parent then
 			return
 		end
@@ -4651,9 +4659,18 @@ local function jump(window, handle)
 		local offset = row.AbsolutePosition.Y - scroll.AbsolutePosition.Y + scroll.CanvasPosition.Y
 		scroll.CanvasPosition = Vector2.new(0, math.max(offset - Theme.space.xxxl, 0))
 
-		if handle.section and handle.section.openMenu then
-			handle.section.openMenu()
+		local function openNext(index: number)
+			local menu = menus[index]
+			if not menu then
+				return
+			end
+			menu.openMenu()
+			task.defer(function()
+				openNext(index + 1)
+			end)
 		end
+
+		openNext(1)
 
 		Motion.tween(row, Motion.curve.reveal, { BackgroundTransparency = 0 }, handle.trove)
 		Motion.after(0.3, function()
@@ -5441,58 +5458,26 @@ function SubMenu.attach(owner, opts)
 
 	local section = Section.new(proxy, settings.Title or owner.text, { Parent = scroll })
 
+	section.frame.Size = UDim2.fromOffset(
+		metrics.menuWidth - Theme.space.md * 2 - metrics.scrollBar,
+		0
+	)
+
 	section.page = owner.section and owner.section.page or nil
 	section.anchorRow = owner
 
-	local function resize()
-		local content = section.frame.AbsoluteSize.Y
-		if content <= 0 then
-			return
-		end
-		local height = math.clamp(content + Theme.space.md * 2, 48, metrics.menuMaxHeight)
-		panel.Size = UDim2.fromOffset(metrics.menuWidth, math.floor(height))
-	end
+	trove:Add(section)
 
-	trove:Connect(section.frame:GetPropertyChangedSignal("AbsoluteSize"), resize)
+	local generation = 0
+	local height = 48
+	local token = nil
 
-	local function close()
-		if not open then
-			return
-		end
-		open = false
-
-		paint(glyphs, Theme.text[2])
-		Motion.tween(border, Motion.curve.color, { Color = Theme.line.control }, trove)
-
-		local fade = Motion.tween(panel, Motion.curve.exit, { GroupTransparency = 1 }, trove)
-		local function finish()
-			panel.Parent = nil
-		end
-
-		if fade then
-			fade.Completed:Once(finish)
-		else
-			finish()
-		end
-	end
-
-	local function show()
-		if open then
-			return
-		end
-		open = true
-
-		resize()
-
+	local function place()
 		local camera = workspace.CurrentCamera
 		local bounds = if camera then camera.ViewportSize else Vector2.new(1280, 720)
 
 		local anchor = button.AbsolutePosition
 		local anchorSize = button.AbsoluteSize
-		local height = panel.AbsoluteSize.Y
-		if height <= 0 then
-			height = metrics.menuMaxHeight
-		end
 
 		local x = math.clamp(
 			anchor.X + anchorSize.X - metrics.menuWidth,
@@ -5506,15 +5491,78 @@ function SubMenu.attach(owner, opts)
 		end
 
 		panel.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
+	end
+
+	local function resize()
+		local content = section.frame.AbsoluteSize.Y
+		if content <= 0 then
+			return
+		end
+
+		height = math.floor(math.clamp(content + Theme.space.md * 2, 48, metrics.menuMaxHeight))
+		panel.Size = UDim2.fromOffset(metrics.menuWidth, height)
+
+		if open then
+			place()
+		end
+	end
+
+	trove:Connect(section.frame:GetPropertyChangedSignal("AbsoluteSize"), resize)
+
+	local function close()
+		if not open then
+			return
+		end
+
+		open = false
+		token = nil
+		generation += 1
+
+		local mine = generation
+
+		paint(glyphs, Theme.text[2])
+		Motion.tween(border, Motion.curve.color, { Color = Theme.line.control }, trove)
+
+		local function finish()
+			if mine ~= generation then
+				return
+			end
+			pcall(function()
+				panel.Parent = nil
+			end)
+		end
+
+		local fade = Motion.tween(panel, Motion.curve.exit, { GroupTransparency = 1 }, trove)
+		if fade then
+			fade.Completed:Once(finish)
+		else
+			finish()
+		end
+	end
+
+	local function show()
+		if open then
+			return
+		end
+
+		open = true
+		generation += 1
+
+		panel.Size = UDim2.fromOffset(metrics.menuWidth, height)
+		place()
 		panel.GroupTransparency = 1
 
 		paint(glyphs, Theme.text[0])
 		Motion.tween(border, Motion.curve.color, { Color = Theme.line.focus }, trove)
 
-		window:openPopup(panel, close)
+		token = window:openPopup(panel, close)
 		Motion.tween(panel, Motion.curve.reveal, { GroupTransparency = 0 }, trove)
 
-		task.defer(resize)
+		trove:Add(task.defer(function()
+			if open then
+				resize()
+			end
+		end))
 	end
 
 	trove:Connect(button.Activated, function()
@@ -5522,7 +5570,7 @@ function SubMenu.attach(owner, opts)
 			return
 		end
 		if open then
-			window:closePopup()
+			window:closePopup(token)
 		else
 			show()
 		end
@@ -5542,6 +5590,12 @@ function SubMenu.attach(owner, opts)
 	section.button = button
 
 	owner.menu = section
+
+	trove:Add(function()
+		if open and token then
+			window:closePopup(token)
+		end
+	end)
 
 	return section
 end
@@ -5685,9 +5739,10 @@ Theme.zone = {
 	keybinds = 6,
 	overlay = 20,
 	popup = 21,
-	notification = 30,
-	tooltip = 40,
-	dialog = 50,
+	popupDepthMax = 24,
+	notification = 100,
+	tooltip = 200,
+	dialog = 300,
 }
 
 Theme.font = {
@@ -6883,7 +6938,7 @@ function Window:bindToggle(key)
 		end
 		if input.KeyCode == self.toggleKey then
 			self:toggle()
-		elseif input.KeyCode == Enum.KeyCode.Escape and self.popup then
+		elseif input.KeyCode == Enum.KeyCode.Escape and #self.popups > 0 then
 			self:closePopup()
 		end
 	end)
@@ -6940,7 +6995,7 @@ function Window:isBlocked(): boolean
 end
 
 function Window:openPopup(frame: GuiObject, onClose)
-	local depth = #self.popups
+	local depth = math.min(#self.popups, Theme.zone.popupDepthMax)
 
 	local catcher = Create.button({
 		Name = "Catcher",
@@ -6954,16 +7009,19 @@ function Window:openPopup(frame: GuiObject, onClose)
 	frame.Parent = self.overlay
 	frame.ZIndex = Theme.zone.popup + depth * 2
 
-	local connection = catcher.Activated:Connect(function()
-		self:closePopup()
-	end)
-
-	table.insert(self.popups, {
+	local entry = {
 		frame = frame,
 		onClose = onClose,
 		catcher = catcher,
-		connection = connection,
-	})
+	}
+
+	entry.connection = catcher.Activated:Connect(function()
+		self:closePopup(entry)
+	end)
+
+	table.insert(self.popups, entry)
+
+	return entry
 end
 
 function Window:closePopups()
@@ -6972,11 +7030,17 @@ function Window:closePopups()
 	end
 end
 
-function Window:closePopup()
-	local popup = table.remove(self.popups)
-	if not popup then
+function Window:closePopup(token)
+	local top = self.popups[#self.popups]
+	if not top then
 		return
 	end
+
+	if token ~= nil and token ~= top then
+		return
+	end
+
+	local popup = table.remove(self.popups)
 
 	if popup.connection then
 		popup.connection:Disconnect()

@@ -526,7 +526,7 @@ function Window:bindToggle(key)
 		end
 		if input.KeyCode == self.toggleKey then
 			self:toggle()
-		elseif input.KeyCode == Enum.KeyCode.Escape and self.popup then
+		elseif input.KeyCode == Enum.KeyCode.Escape and #self.popups > 0 then
 			self:closePopup()
 		end
 	end)
@@ -583,7 +583,7 @@ function Window:isBlocked(): boolean
 end
 
 function Window:openPopup(frame: GuiObject, onClose)
-	local depth = #self.popups
+	local depth = math.min(#self.popups, Theme.zone.popupDepthMax)
 
 	local catcher = Create.button({
 		Name = "Catcher",
@@ -597,16 +597,19 @@ function Window:openPopup(frame: GuiObject, onClose)
 	frame.Parent = self.overlay
 	frame.ZIndex = Theme.zone.popup + depth * 2
 
-	local connection = catcher.Activated:Connect(function()
-		self:closePopup()
-	end)
-
-	table.insert(self.popups, {
+	local entry = {
 		frame = frame,
 		onClose = onClose,
 		catcher = catcher,
-		connection = connection,
-	})
+	}
+
+	entry.connection = catcher.Activated:Connect(function()
+		self:closePopup(entry)
+	end)
+
+	table.insert(self.popups, entry)
+
+	return entry
 end
 
 function Window:closePopups()
@@ -615,11 +618,17 @@ function Window:closePopups()
 	end
 end
 
-function Window:closePopup()
-	local popup = table.remove(self.popups)
-	if not popup then
+function Window:closePopup(token)
+	local top = self.popups[#self.popups]
+	if not top then
 		return
 	end
+
+	if token ~= nil and token ~= top then
+		return
+	end
+
+	local popup = table.remove(self.popups)
 
 	if popup.connection then
 		popup.connection:Disconnect()

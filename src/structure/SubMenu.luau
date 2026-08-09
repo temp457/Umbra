@@ -107,58 +107,26 @@ function SubMenu.attach(owner, opts)
 
 	local section = Section.new(proxy, settings.Title or owner.text, { Parent = scroll })
 
+	section.frame.Size = UDim2.fromOffset(
+		metrics.menuWidth - Theme.space.md * 2 - metrics.scrollBar,
+		0
+	)
+
 	section.page = owner.section and owner.section.page or nil
 	section.anchorRow = owner
 
-	local function resize()
-		local content = section.frame.AbsoluteSize.Y
-		if content <= 0 then
-			return
-		end
-		local height = math.clamp(content + Theme.space.md * 2, 48, metrics.menuMaxHeight)
-		panel.Size = UDim2.fromOffset(metrics.menuWidth, math.floor(height))
-	end
+	trove:Add(section)
 
-	trove:Connect(section.frame:GetPropertyChangedSignal("AbsoluteSize"), resize)
+	local generation = 0
+	local height = 48
+	local token = nil
 
-	local function close()
-		if not open then
-			return
-		end
-		open = false
-
-		paint(glyphs, Theme.text[2])
-		Motion.tween(border, Motion.curve.color, { Color = Theme.line.control }, trove)
-
-		local fade = Motion.tween(panel, Motion.curve.exit, { GroupTransparency = 1 }, trove)
-		local function finish()
-			panel.Parent = nil
-		end
-
-		if fade then
-			fade.Completed:Once(finish)
-		else
-			finish()
-		end
-	end
-
-	local function show()
-		if open then
-			return
-		end
-		open = true
-
-		resize()
-
+	local function place()
 		local camera = workspace.CurrentCamera
 		local bounds = if camera then camera.ViewportSize else Vector2.new(1280, 720)
 
 		local anchor = button.AbsolutePosition
 		local anchorSize = button.AbsoluteSize
-		local height = panel.AbsoluteSize.Y
-		if height <= 0 then
-			height = metrics.menuMaxHeight
-		end
 
 		local x = math.clamp(
 			anchor.X + anchorSize.X - metrics.menuWidth,
@@ -172,15 +140,78 @@ function SubMenu.attach(owner, opts)
 		end
 
 		panel.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
+	end
+
+	local function resize()
+		local content = section.frame.AbsoluteSize.Y
+		if content <= 0 then
+			return
+		end
+
+		height = math.floor(math.clamp(content + Theme.space.md * 2, 48, metrics.menuMaxHeight))
+		panel.Size = UDim2.fromOffset(metrics.menuWidth, height)
+
+		if open then
+			place()
+		end
+	end
+
+	trove:Connect(section.frame:GetPropertyChangedSignal("AbsoluteSize"), resize)
+
+	local function close()
+		if not open then
+			return
+		end
+
+		open = false
+		token = nil
+		generation += 1
+
+		local mine = generation
+
+		paint(glyphs, Theme.text[2])
+		Motion.tween(border, Motion.curve.color, { Color = Theme.line.control }, trove)
+
+		local function finish()
+			if mine ~= generation then
+				return
+			end
+			pcall(function()
+				panel.Parent = nil
+			end)
+		end
+
+		local fade = Motion.tween(panel, Motion.curve.exit, { GroupTransparency = 1 }, trove)
+		if fade then
+			fade.Completed:Once(finish)
+		else
+			finish()
+		end
+	end
+
+	local function show()
+		if open then
+			return
+		end
+
+		open = true
+		generation += 1
+
+		panel.Size = UDim2.fromOffset(metrics.menuWidth, height)
+		place()
 		panel.GroupTransparency = 1
 
 		paint(glyphs, Theme.text[0])
 		Motion.tween(border, Motion.curve.color, { Color = Theme.line.focus }, trove)
 
-		window:openPopup(panel, close)
+		token = window:openPopup(panel, close)
 		Motion.tween(panel, Motion.curve.reveal, { GroupTransparency = 0 }, trove)
 
-		task.defer(resize)
+		trove:Add(task.defer(function()
+			if open then
+				resize()
+			end
+		end))
 	end
 
 	trove:Connect(button.Activated, function()
@@ -188,7 +219,7 @@ function SubMenu.attach(owner, opts)
 			return
 		end
 		if open then
-			window:closePopup()
+			window:closePopup(token)
 		else
 			show()
 		end
@@ -208,6 +239,12 @@ function SubMenu.attach(owner, opts)
 	section.button = button
 
 	owner.menu = section
+
+	trove:Add(function()
+		if open and token then
+			window:closePopup(token)
+		end
+	end)
 
 	return section
 end
